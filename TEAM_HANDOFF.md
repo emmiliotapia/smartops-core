@@ -45,9 +45,29 @@ python setup_validation.py
 
 ✅ **Success Criteria:** Ver mensaje "All checks passed! Setup is ready."
 
+**OPCIÓN RÁPIDA (sin pasos):**
+```bash
+# Una sola línea - todo automatizado
+python local_test_setup.py
+```
+
 ---
 
 ### MARTES: Test Endpoints
+
+**FORMA RÁPIDA (Recomendado):**
+```bash
+# Windows: Una ventana, ejecuta todo
+python run_local_test.py
+
+# o PowerShell (recomendado):
+.\run_local_test.ps1
+
+# o Batch (.bat):
+run_local_test.bat
+```
+
+**FORMA MANUAL (si prefieres control):**
 ```bash
 # Terminal 1: Base de datos
 docker-compose up -d postgres

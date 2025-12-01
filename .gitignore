@@ -1,0 +1,12 @@
+.env
+smartops_data/postgres/
+__pycache__/
+*.pyc
+__pycache__/
+*.pyc
+.env
+smartops_data/postgres/
+__pycache__/
+*.pyc
+.env
+smartops_data/postgres/

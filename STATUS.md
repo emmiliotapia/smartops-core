@@ -71,7 +71,7 @@ Configure 4-node workflow:
 
 ### Phase 3: VPS Activation (⏳ Pending)
 ```bash
-ssh smartops@164.92.110.179
+ssh smartops@your-vps-ip
 cd /opt/smartops-tools
 docker-compose up -d
 ```

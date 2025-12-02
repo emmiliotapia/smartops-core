@@ -3,7 +3,7 @@
 Just copy & paste this:
 
 ```bash
-python local_test_setup.py && python run_local_test.py
+python setup.py && python start.py
 ```
 
 **That's it.** Everything else is automatic.

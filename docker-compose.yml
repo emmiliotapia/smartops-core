@@ -1,0 +1,148 @@
+version: '3.8'
+
+services:
+  # ========================================================================
+  # PostgreSQL + pgvector (Database)
+  # ========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: smartops_postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-smartops}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-smartops_dev_password}
+      POSTGRES_DB: ${DB_NAME:-smartops_core}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./smartops_data/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - smartops_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-smartops}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ========================================================================
+  # pgvector (Vector Search Extension)
+  # ========================================================================
+  postgres_pgvector:
+    image: ankane/pgvector:latest
+    depends_on:
+      - postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-smartops}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-smartops_dev_password}
+      POSTGRES_DB: ${DB_NAME:-smartops_core}
+    networks:
+      - smartops_network
+    # Note: pgvector is typically installed via extension in postgres
+    # This is a reference image that includes it pre-installed
+
+  # ========================================================================
+  # n8n (Workflow Automation)
+  # ========================================================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: smartops_n8n
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-smartops_n8n_password}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=${N8N_PORT:-5678}
+      - N8N_PROTOCOL=http
+      - N8N_EDITOR_BASE_URL=http://${N8N_HOST:-localhost}:${N8N_PORT:-5678}/
+      - DATABASE_TYPE=postgresdb
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=${DB_USER:-smartops}
+      - DATABASE_PASSWORD=${DB_PASSWORD:-smartops_dev_password}
+      - DATABASE_NAME=${N8N_DB_NAME:-n8n}
+      - WEBHOOK_URL=http://${N8N_HOST:-localhost}:${N8N_PORT:-5678}/
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - smartops_network
+    restart: unless-stopped
+
+  # ========================================================================
+  # WAHA (WhatsApp API)
+  # ========================================================================
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: smartops_waha
+    environment:
+      - DEBUG=*
+      - WAHA_WORKERS=2
+      - WAHA_WORKER_CONCURRENCY=4
+      - WAHA_WORKER_TIMEOUT=120
+      - WAHA_MANAGER_URL=${WAHA_MANAGER_URL:-http://localhost:3000}
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+    volumes:
+      - waha_data:/home/waha/.waha
+      - waha_sessions:/home/waha/.waha/sessions
+    networks:
+      - smartops_network
+    restart: unless-stopped
+    # Uncomment to use with reverse proxy
+    # environment:
+    #   - WAHA_PROXY_URL=${WAHA_PROXY_URL:-http://your-domain.com}
+
+  # ========================================================================
+  # Redis (Optional - for caching/sessions)
+  # ========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: smartops_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - smartops_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ========================================================================
+  # Adminer (Optional - Database Admin UI)
+  # ========================================================================
+  adminer:
+    image: adminer:latest
+    container_name: smartops_adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      - smartops_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  n8n_data:
+    driver: local
+  waha_data:
+    driver: local
+  waha_sessions:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  smartops_network:
+    driver: bridge

@@ -1,7 +1,10 @@
 """
 Router for Demo module endpoints.
-Implementa los 3 endpoints del Quest 1: THE LOADER, THE SHOW, THE NEURALIZER.
-Integra RAG service (Quest 2.2) para PDF ingestion y vector search.
+
+Implements 3 main endpoints:
+- POST /demo/upload: THE LOADER - Document ingestion with RAG indexing
+- POST /demo/message: THE SHOW - Semantic search with RAG retrieval
+- POST /demo/reset: THE NEURALIZER - Session cleanup and vector deletion
 """
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -29,17 +32,17 @@ logger = logging.getLogger(__name__)
 # Router configuration
 router = APIRouter(
     prefix="/demo",
-    tags=["Quest 1: Demo Comercial"],
+    tags=["demo"],
 )
 
-# Configuración de seguridad
+# Security configuration
 NEURALIZER_SECRET = os.getenv("NEURALIZER_SECRET", "flash")
 UPLOAD_DIR = "/tmp/smartops_demo_uploads"
 
 
 # Utilities
 def ensure_upload_dir():
-    """Crear directorio de uploads si no existe."""
+    """Create upload directory if it does not exist."""
     os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
@@ -49,8 +52,8 @@ def ensure_upload_dir():
 @router.post(
     "/upload",
     response_model=DemoSessionResponse,
-    summary="THE LOADER: Cargar documento/imagen para la demostración",
-    description="Crea una sesión de demostración con un archivo (PDF/imagen) y metadatos del negocio.",
+    summary="Upload document for demo",
+    description="Create demo session with PDF/image file and business metadata.",
 )
 async def upload_demo(
     file: UploadFile = File(...),
@@ -59,46 +62,46 @@ async def upload_demo(
     db: Session = Depends(get_db),
 ):
     """
-    THE LOADER - Endpoint de ingesta de datos.
-    
-    Flujo:
-    1. Validar que el archivo sea PDF o imagen
-    2. Crear sesión DemoSession en base de datos
-    3. Guardar archivo en disco
-    4. Llamar a DemoRAGService.index_demo_document() para ingesta RAG (Quest 2.2)
-    5. Retornar session_id con estadística de chunks indexados
-    
+    THE LOADER - Document ingestion endpoint.
+
+    Workflow:
+    1. Validate file type (PDF or image)
+    2. Create DemoSession in database
+    3. Save file to disk
+    4. Call DemoRAGService.index_demo_document() for RAG indexing
+    5. Return session_id with chunk indexing statistics
+
     Args:
-        file: Archivo a procesar (PDF o imagen)
-        business_name: Nombre del negocio
-        business_type: Tipo de negocio (restaurante, clinica, etc)
-        db: Sesión de base de datos
-        
+        file: File to process (PDF or image)
+        business_name: Business name
+        business_type: Business type (restaurant, clinic, etc)
+        db: Database session
+
     Returns:
-        DemoSessionResponse con session_id y chunks_indexed
+        DemoSessionResponse with session_id and chunks_indexed
     """
-    
+
     try:
-        # Validar tipo de archivo (PDF + Imágenes para Vision)
+        # Validate file type (PDF + Images for Vision)
         allowed_types = {"application/pdf", "image/jpeg", "image/png"}
         content_type = file.content_type or ""
-        
-        # Mapeo de content-type a extensión
+
+        # Map content-type to file extension
         type_to_ext = {
             "application/pdf": ".pdf",
             "image/jpeg": ".jpg",
             "image/png": ".png"
         }
-        
+
         if content_type not in allowed_types:
             raise HTTPException(
                 status_code=400,
-                detail=f"Tipo de archivo no permitido. Permitidos: PDF, JPEG, PNG. Recibido: {content_type}"
+                detail=f"File type not allowed. Allowed: PDF, JPEG, PNG. Received: {content_type}"
             )
-        
+
         file_extension = type_to_ext.get(content_type, ".bin")
-        
-        # Crear registro DemoSession en DB
+
+        # Create DemoSession record in DB
         session_id = str(uuid.uuid4())
         demo_session = DemoSession(
             id=uuid.UUID(session_id),
@@ -108,23 +111,23 @@ async def upload_demo(
             source_file_path=f"{UPLOAD_DIR}/{session_id}{file_extension}",
             vector_collection_id=f"col_{session_id[:8]}",
         )
-        
+
         db.add(demo_session)
         db.commit()
         db.refresh(demo_session)
-        
-        # Guardar archivo en disco
+
+        # Save file to disk
         ensure_upload_dir()
         file_path = f"{UPLOAD_DIR}/{session_id}{file_extension}"
         with open(file_path, "wb") as f:
             content = await file.read()
             f.write(content)
-        
-        # Integración Quest 2.2: Indexar PDF con RAG
+
+        # RAG indexing: Index PDF with semantic search
         chunks_indexed = 0
         rag_status = "pending"
         rag_message = "RAG indexing deferred"
-        
+
         try:
             rag_service = DemoRAGService()
             rag_result = rag_service.index_demo_document(
@@ -137,24 +140,24 @@ async def upload_demo(
             rag_message = rag_result.get("message", "Indexing complete")
             logger.info(f"RAG indexing complete: {chunks_indexed} chunks indexed")
         except Exception as e:
-            # No fallar el upload si RAG falla, pero loguear error
+            # Do not fail upload if RAG fails, but log error
             logger.error(f"RAG indexing failed: {str(e)}")
             chunks_indexed = 0
             rag_status = "failed"
             rag_message = f"RAG indexing failed: {str(e)}"
-        
+
         return DemoSessionResponse(
             session_id=str(demo_session.id),
             status="active",
-            message=f"Sesion de demo iniciada para {business_name} ({business_type}). {rag_message}"
+            message=f"Demo session started for {business_name} ({business_type}). {rag_message}"
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
-        logger.error(f"Error en upload_demo: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error al crear sesion: {str(e)}")
+        logger.error(f"Error in upload_demo: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating session: {str(e)}")
 
 
 # ============================================================================
@@ -163,84 +166,84 @@ async def upload_demo(
 @router.post(
     "/message",
     response_model=MessageResponse,
-    summary="THE SHOW: Interactuar con el bot demo",
-    description="Envía un mensaje a la demostración y recibe una respuesta contextualizada con RAG.",
+    summary="Chat with demo bot",
+    description="Send message to demo and receive context-aware response from RAG.",
 )
 async def send_message(
     request: MessageRequest,
     db: Session = Depends(get_db),
 ):
     """
-    THE SHOW - Endpoint de interacción con bot.
-    
-    Flujo:
-    1. Buscar DemoSession por session_id
-    2. Validar que exista y esté activa
-    3. Llamar a DemoRAGService.query_demo() para retrieval vectorial (Quest 2.2)
-    4. Retornar respuesta contextualizada con chunks más relevantes
-    
+    THE SHOW - Bot interaction endpoint.
+
+    Workflow:
+    1. Find DemoSession by session_id
+    2. Validate existence and active status
+    3. Call DemoRAGService.query_demo() for vector semantic search
+    4. Return context-aware response with most relevant chunks
+
     Args:
-        request: MessageRequest con session_id y message
-        db: Sesión de base de datos
-        
+        request: MessageRequest with session_id and message
+        db: Database session
+
     Returns:
-        MessageResponse con la respuesta del bot (contexto RAG)
+        MessageResponse with bot response (RAG context)
     """
-    
+
     try:
-        # Convertir session_id string a UUID para queries
+        # Convert session_id string to UUID for queries
         try:
             session_uuid = uuid.UUID(request.session_id)
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="session_id inválido")
-        
-        # Buscar sesión en DB
+            raise HTTPException(status_code=400, detail="Invalid session_id")
+
+        # Find session in DB
         demo_session = db.query(DemoSession).filter(
             DemoSession.id == session_uuid
         ).first()
-        
+
         if not demo_session:
             raise HTTPException(
                 status_code=404,
-                detail=f"Sesion {request.session_id} no encontrada"
+                detail=f"Session {request.session_id} not found"
             )
-        
+
         if not demo_session.active:
             raise HTTPException(
                 status_code=400,
-                detail="La sesion de demo ha sido cerrada"
+                detail="Demo session has been closed"
             )
-        
-        # Integración Quest 2.2: Buscar contexto en RAG
+
+        # RAG retrieval: Search context
         bot_response = ""
         try:
             rag_service = DemoRAGService()
-            # Retrieval vectorial
+            # Vector semantic search
             context = rag_service.query_demo(
                 session_id=request.session_id,
                 question=request.message,
                 db=db
             )
-            # En producción, aquí iría LLM para generar respuesta con contexto
-            # Por ahora, retornamos el contexto RAG directamente
-            bot_response = f"Contexto encontrado:\n\n{context}"
+            # In production, LLM would generate response with context
+            # For now, return RAG context directly
+            bot_response = f"Found context:\n\n{context}"
             logger.info(f"RAG query executed for session {request.session_id}")
         except Exception as e:
             logger.error(f"RAG query failed: {str(e)}")
-            # Fallback a respuesta mock si RAG falla
-            bot_response = f"Lo siento, no pude recuperar contexto del documento: {str(e)}"
-        
+            # Fallback to error response if RAG fails
+            bot_response = f"Sorry, could not retrieve document context: {str(e)}"
+
         return MessageResponse(
             session_id=str(demo_session.id),
             response=bot_response,
             business_type=demo_session.business_type
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error en send_message: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error al procesar mensaje: {str(e)}")
+        logger.error(f"Error in send_message: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
 
 
 # ============================================================================
@@ -249,58 +252,58 @@ async def send_message(
 @router.post(
     "/reset",
     response_model=NeuralizerResponse,
-    summary="THE NEURALIZER: Cerrar y limpiar sesion de demo",
-    description="Cierra la sesion de demostración, valida palabra secreta, limpia vectores RAG, y opcionalmente guarda el lead.",
+    summary="Close and cleanup demo session",
+    description="Close demo session, validate secret word, cleanup RAG vectors, and optionally save lead.",
 )
 async def neuralizer_reset(
     request: NeuralizerRequest,
     db: Session = Depends(get_db),
 ):
     """
-    THE NEURALIZER - Endpoint de cierre de sesión.
-    
-    Flujo:
-    1. Validar palabra secreta (NEURALIZER_SECRET)
-    2. Buscar DemoSession por session_id
-    3. Llamar a DemoRAGService.cleanup_session_vectors() para limpiar vectores (Quest 2.2)
-    4. Marcar sesión como inactive, establecer closed_at
-    5. Si save_lead=True, crear registro DemoLead con datos
-    6. Retornar NeuralizerResponse con estadística de vectores eliminados
-    
+    THE NEURALIZER - Session cleanup endpoint.
+
+    Workflow:
+    1. Validate secret word (NEURALIZER_SECRET)
+    2. Find DemoSession by session_id
+    3. Call DemoRAGService.cleanup_session_vectors() to cleanup vectors
+    4. Mark session as inactive, set closed_at timestamp
+    5. If save_lead=True, create DemoLead record with data
+    6. Return NeuralizerResponse with vector deletion statistics
+
     Args:
-        request: NeuralizerRequest con session_id, secret_word, save_lead
-        db: Sesión de base de datos
-        
+        request: NeuralizerRequest with session_id, secret_word, save_lead
+        db: Database session
+
     Returns:
-        NeuralizerResponse confirmando cierre y limpieza
+        NeuralizerResponse confirming closure and cleanup
     """
-    
+
     try:
-        # Validar palabra secreta
+        # Validate secret word
         if request.secret_word != NEURALIZER_SECRET:
             raise HTTPException(
                 status_code=403,
-                detail="Palabra secreta incorrecta. Acceso denegado."
+                detail="Incorrect secret word. Access denied."
             )
-        
-        # Convertir session_id string a UUID para queries
+
+        # Convert session_id string to UUID for queries
         try:
             session_uuid = uuid.UUID(request.session_id)
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="session_id inválido")
-        
-        # Buscar sesión en DB
+            raise HTTPException(status_code=400, detail="Invalid session_id")
+
+        # Find session in DB
         demo_session = db.query(DemoSession).filter(
             DemoSession.id == session_uuid
         ).first()
-        
+
         if not demo_session:
             raise HTTPException(
                 status_code=404,
-                detail=f"Sesion {request.session_id} no encontrada"
+                detail=f"Session {request.session_id} not found"
             )
-        
-        # Integración Quest 2.2: Limpiar vectores RAG
+
+        # RAG cleanup: Delete vectors
         vectors_deleted = 0
         try:
             rag_service = DemoRAGService()
@@ -312,24 +315,24 @@ async def neuralizer_reset(
             logger.info(f"RAG cleanup complete: {vectors_deleted} vectors deleted")
         except Exception as e:
             logger.error(f"RAG cleanup failed: {str(e)}")
-            # No fallar el reset si la limpieza RAG falla
+            # Do not fail reset if RAG cleanup fails
             vectors_deleted = 0
-        
-        # Cerrar sesión
+
+        # Close session
         demo_session.active = False
         demo_session.closed_at = datetime.utcnow()
         db.add(demo_session)
-        
+
         lead_saved = False
-        
-        # Si se solicita guardar lead, crear registro
+
+        # If requested, save lead record
         if request.save_lead:
             try:
                 demo_lead = DemoLead(
                     session_id=demo_session.id,
-                    prospect_name="Prospecto Demo",
+                    prospect_name="Demo Prospect",
                     prospect_phone="+34 000 000 000",
-                    interest_level="caliente",
+                    interest_level="hot",
                     notes={
                         "business_name": demo_session.business_name,
                         "business_type": demo_session.business_type,
@@ -339,23 +342,23 @@ async def neuralizer_reset(
                 db.add(demo_lead)
                 lead_saved = True
             except Exception as e:
-                logger.warning(f"Error guardando lead: {str(e)}")
-        
+                logger.warning(f"Error saving lead: {str(e)}")
+
         db.commit()
-        
+
         return NeuralizerResponse(
             session_id=str(demo_session.id),
             status="closed",
-            message=f"Sesion de demo cerrada exitosamente. {vectors_deleted} vectores RAG eliminados.",
+            message=f"Demo session closed successfully. {vectors_deleted} RAG vectors deleted.",
             lead_saved=lead_saved
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
-        logger.error(f"Error en neuralizer_reset: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error al cerrar sesion: {str(e)}")
+        logger.error(f"Error in neuralizer_reset: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error closing session: {str(e)}")
 
 
 # ============================================================================
@@ -363,11 +366,11 @@ async def neuralizer_reset(
 # ============================================================================
 @router.get(
     "/health",
-    summary="Health check del modulo Demo",
-    tags=["Health"],
+    summary="Health check for demo module",
+    tags=["health"],
 )
 async def demo_health():
-    """Verifica que el modulo demo está activo."""
+    """Check that demo module is active."""
     return {
         "status": "healthy",
         "module": "demo",

@@ -188,9 +188,15 @@ async def send_message(
     """
     
     try:
+        # Convertir session_id string a UUID para queries
+        try:
+            session_uuid = uuid.UUID(request.session_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="session_id inválido")
+        
         # Buscar sesión en DB
         demo_session = db.query(DemoSession).filter(
-            DemoSession.id == request.session_id
+            DemoSession.id == session_uuid
         ).first()
         
         if not demo_session:
@@ -277,9 +283,15 @@ async def neuralizer_reset(
                 detail="Palabra secreta incorrecta. Acceso denegado."
             )
         
+        # Convertir session_id string a UUID para queries
+        try:
+            session_uuid = uuid.UUID(request.session_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="session_id inválido")
+        
         # Buscar sesión en DB
         demo_session = db.query(DemoSession).filter(
-            DemoSession.id == request.session_id
+            DemoSession.id == session_uuid
         ).first()
         
         if not demo_session:

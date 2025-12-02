@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
   # ========================================================================
   # PostgreSQL + pgvector (Database)
   # ========================================================================
   postgres:
-    image: postgres:15-alpine
+    image: ankane/pgvector:latest
     container_name: smartops_postgres
     environment:
       POSTGRES_USER: ${DB_USER:-smartops}
@@ -24,22 +22,6 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
-
-  # ========================================================================
-  # pgvector (Vector Search Extension)
-  # ========================================================================
-  postgres_pgvector:
-    image: ankane/pgvector:latest
-    depends_on:
-      - postgres
-    environment:
-      POSTGRES_USER: ${DB_USER:-smartops}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-smartops_dev_password}
-      POSTGRES_DB: ${DB_NAME:-smartops_core}
-    networks:
-      - smartops_network
-    # Note: pgvector is typically installed via extension in postgres
-    # This is a reference image that includes it pre-installed
 
   # ========================================================================
   # n8n (Workflow Automation)
